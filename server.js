@@ -14,15 +14,19 @@ app.use(express.json());
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-}).then(() => console.log('Connected to MongoDB'))
-  .catch((error) => console.error('MongoDB connection error:', error));
+})
+.then(() => console.log('Connected to MongoDB'))
+.catch((error) => {
+  console.error('MongoDB connection error:', error);
+  process.exit(1); // Exit if DB connection fails
+});
 
 // Contact schema and model
 const contactSchema = new mongoose.Schema({
-  name: String,
-  email: String,
-  phone: String,
-});
+  name: { type: String, required: true, trim: true },
+  email: { type: String, required: true, trim: true, lowercase: true },
+  phone: { type: String, required: true, trim: true },
+}, { timestamps: true });
 
 const Contact = mongoose.model('Contact', contactSchema);
 
@@ -32,26 +36,56 @@ app.get('/api/contacts', async (req, res) => {
     const contacts = await Contact.find();
     res.json(contacts);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('GET /api/contacts error:', error);
+    res.status(500).json({ message: 'Internal Server Error' });
   }
 });
 
 app.post('/api/contacts', async (req, res) => {
-  const contact = new Contact(req.body);
   try {
+    const contact = new Contact(req.body);
     const savedContact = await contact.save();
     res.status(201).json(savedContact);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('POST /api/contacts error:', error);
+    // Handle validation errors separately
+    if (error.name === 'ValidationError') {
+      res.status(400).json({ message: error.message });
+    } else {
+      res.status(500).json({ message: 'Internal Server Error' });
+    }
+  }
+});
+
+app.put('/api/contacts/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const updatedContact = await Contact.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
+    if (!updatedContact) {
+      return res.status(404).json({ message: 'Contact not found' });
+    }
+    res.json(updatedContact);
+  } catch (error) {
+    console.error(`PUT /api/contacts/${id} error:`, error);
+    if (error.name === 'ValidationError') {
+      res.status(400).json({ message: error.message });
+    } else {
+      res.status(500).json({ message: 'Internal Server Error' });
+    }
   }
 });
 
 app.delete('/api/contacts/:id', async (req, res) => {
+  const { id } = req.params;
   try {
-    await Contact.findByIdAndDelete(req.params.id);
+    const deleted = await Contact.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({ message: 'Contact not found' });
+    }
     res.json({ message: 'Deleted' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error(`DELETE /api/contacts/${id} error:`, error);
+    res.status(500).json({ message: 'Internal Server Error' });
   }
 });
 
